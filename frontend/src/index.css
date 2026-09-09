@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+:root {
+  --soil: #14140f;
+  --soil-2: #1c1c14;
+  --paper: #f3ecd8;
+  --paper-2: #ece2c8;
+  --crop-solid: #7c9a55;
+  --crop-deep: #4c6236;
+  --gold: #d9a441;
+  --clay: #b5542a;
+  --ink: #241f16;
+  --mist: #eee6d2;
+  --mist-dim: #c9c1aa;
+  --line: #3a3a2d;
+}
+
+body {
+  background: var(--soil);
+  color: var(--mist);
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+::selection { background: var(--gold); color: var(--ink); }
+
+h1, h2, h3, .display {
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.font-mono-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+.eyebrow::before {
+  content: "";
+  width: 22px; height: 1px;
+  background: var(--gold);
+  display: inline-block;
+}
