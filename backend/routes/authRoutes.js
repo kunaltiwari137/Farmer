@@ -5,5 +5,6 @@ const { signupValidation, loginValidation, handleValidationErrors } = require(".
 
 router.post("/signup", signupValidation, handleValidationErrors, authController.signup);
 router.post("/login", loginValidation, handleValidationErrors, authController.login);
+router.post("/google", authController.googleAuth);
 
 module.exports = router;

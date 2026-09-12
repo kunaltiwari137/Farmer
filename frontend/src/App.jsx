@@ -4,6 +4,7 @@ import Navbar from "./Navbar";
 import CropList from "./CropList";
 import CropDetail from "./CropDetail";
 import Login from "./Login";
+import Signup from "./Signup";
 import PlaceOrder from "./PlaceOrder";
 import MyOrders from "./MyOrders";
 import FarmerDashboard from "./FarmerDashboard";
@@ -48,6 +49,7 @@ function App() {
           <Route path="/" element={<CropList />} />
           <Route path="/crop/:id" element={<CropDetail />} />
           <Route path="/login" element={<Login onLoginSuccess={setUser} />} />
+          <Route path="/signup" element={<Signup onLoginSuccess={setUser} />} />
           <Route path="/place-order" element={<ProtectedRoute><PlaceOrder /></ProtectedRoute>} />
           <Route path="/my-orders" element={<ProtectedRoute><MyOrders /></ProtectedRoute>} />
           <Route path="/list-crop" element={<ProtectedRoute><ListCrop /></ProtectedRoute>} />
