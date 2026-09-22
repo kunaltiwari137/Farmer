@@ -9,6 +9,11 @@ function Login({ onLoginSuccess }) {
   const [error, setError] = useState("");
   const [googleRole, setGoogleRole] = useState("buyer");
 
+  // STEP 1: OTP step ke liye naya state
+  const [otpStep, setOtpStep] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [pendingUserId, setPendingUserId] = useState(null);
+
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -16,9 +21,28 @@ function Login({ onLoginSuccess }) {
     setError("");
 
     try {
-      const response = await axios.post("http://localhost:5000/api/auth/login", {
-        email,
-        password,
+      const response = await axios.post("http://localhost:5000/api/auth/login", { email, password });
+
+      // STEP 2: Ab token seedha nahi aata — OTP step pe jaao
+      if (response.data.otp_required) {
+        setPendingUserId(response.data.user_id);
+        setOtpStep(true);
+      }
+
+    } catch (err) {
+      setError(err.response?.data?.error || "Login failed");
+    }
+  };
+
+  // STEP 3: OTP submit karne ka handler
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    try {
+      const response = await axios.post("http://localhost:5000/api/auth/verify-otp", {
+        user_id: pendingUserId,
+        otp,
       });
 
       localStorage.setItem("token", response.data.token);
@@ -27,7 +51,7 @@ function Login({ onLoginSuccess }) {
       navigate("/");
 
     } catch (err) {
-      setError(err.response?.data?.error || "Login failed");
+      setError(err.response?.data?.error || "OTP verification failed");
     }
   };
 
@@ -49,6 +73,57 @@ function Login({ onLoginSuccess }) {
     }
   };
 
+  const inputStyle = { background: "var(--soil)", border: "1px solid var(--line)", color: "var(--mist)" };
+
+  // STEP 4: Agar OTP step hai, to sirf OTP form dikhao, poora login form nahi
+  if (otpStep) {
+    return (
+      <div className="max-w-sm mx-auto mt-10">
+        <p className="eyebrow mb-3">Verify</p>
+        <h2 className="text-3xl mb-6" style={{ color: "var(--mist)" }}>Enter OTP</h2>
+
+        <form
+          onSubmit={handleVerifyOtp}
+          className="rounded-2xl p-7"
+          style={{ background: "var(--soil-2)", border: "1px solid var(--line)" }}
+        >
+          <p className="text-sm mb-4" style={{ color: "var(--mist-dim)" }}>
+            We sent a 6-digit code to {email}
+          </p>
+
+          <input
+            type="text"
+            value={otp}
+            onChange={(e) => setOtp(e.target.value)}
+            maxLength={6}
+            placeholder="000000"
+            className="w-full p-3 mb-4 rounded-lg outline-none text-center text-2xl tracking-widest"
+            style={inputStyle}
+          />
+
+          {error && <p className="text-sm mb-4" style={{ color: "var(--clay)" }}>{error}</p>}
+
+          <button
+            type="submit"
+            className="w-full py-3 rounded-full font-semibold"
+            style={{ background: "var(--gold)", color: "var(--ink)" }}
+          >
+            Verify & Login
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { setOtpStep(false); setOtp(""); setError(""); }}
+            className="w-full text-sm mt-3"
+            style={{ color: "var(--mist-dim)" }}
+          >
+            ← Back to login
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-sm mx-auto mt-10">
       <p className="eyebrow mb-3">Welcome back</p>
@@ -65,7 +140,7 @@ function Login({ onLoginSuccess }) {
           value={googleRole}
           onChange={(e) => setGoogleRole(e.target.value)}
           className="w-full p-2 mt-1 mb-4 rounded-lg"
-          style={{ background: "var(--soil)", border: "1px solid var(--line)", color: "var(--mist)" }}
+          style={inputStyle}
         >
           <option value="buyer">Buyer</option>
           <option value="farmer">Farmer</option>
@@ -91,9 +166,7 @@ function Login({ onLoginSuccess }) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="w-full p-3 mt-1 mb-4 rounded-lg outline-none transition-colors"
-            style={{ background: "var(--soil)", border: "1px solid var(--line)", color: "var(--mist)" }}
-            onFocus={(e) => e.target.style.borderColor = "var(--gold)"}
-            onBlur={(e) => e.target.style.borderColor = "var(--line)"}
+            style={inputStyle}
           />
 
           <label className="text-xs uppercase tracking-wide" style={{ color: "var(--mist-dim)" }}>Password</label>
@@ -102,9 +175,7 @@ function Login({ onLoginSuccess }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full p-3 mt-1 mb-5 rounded-lg outline-none transition-colors"
-            style={{ background: "var(--soil)", border: "1px solid var(--line)", color: "var(--mist)" }}
-            onFocus={(e) => e.target.style.borderColor = "var(--gold)"}
-            onBlur={(e) => e.target.style.borderColor = "var(--line)"}
+            style={inputStyle}
           />
 
           {error && <p className="text-sm mb-4" style={{ color: "var(--clay)" }}>{error}</p>}

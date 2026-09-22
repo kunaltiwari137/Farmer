@@ -1,134 +1,820 @@
-// STEP 1: Bring in the database pool
-const pool = require("../config/db");
-const { createNotification } = require("./notificationController");
+const mongoose = require("mongoose");
 
-// STEP 2: Create and export an async function called createOrder
+const Order = require("../models/Order");
+const Crop = require("../models/Crop");
+const Buyer = require("../models/Buyer");
+const Farmer = require("../models/Farmer");
+const Notification = require("../models/Notification");
+
+// ==========================================
+// VALIDATE DELIVERY ADDRESS
+// ==========================================
+const validateAddress = (address) => {
+  if (!address) {
+    return "Delivery address is required";
+  }
+
+  const requiredFields = [
+    "full_name",
+    "phone",
+    "house",
+    "area",
+    "city",
+    "district",
+    "state",
+    "pincode",
+  ];
+
+  for (const field of requiredFields) {
+    if (!address[field] || !String(address[field]).trim()) {
+      return `${field} is required`;
+    }
+  }
+
+  // Phone validation
+  const phone = String(address.phone).replace(/\D/g, "");
+
+  if (phone.length !== 10) {
+    return "Phone number must be 10 digits";
+  }
+
+  // Pincode validation
+  const pincode = String(address.pincode).trim();
+
+  if (!/^\d{6}$/.test(pincode)) {
+    return "Pincode must be 6 digits";
+  }
+
+  return null;
+};
+
+// ==========================================
+// CLEAN DELIVERY ADDRESS
+// ==========================================
+const cleanAddress = (delivery_address) => {
+  return {
+    full_name: delivery_address.full_name.trim(),
+    phone: String(delivery_address.phone).trim(),
+    house: delivery_address.house.trim(),
+    area: delivery_address.area.trim(),
+    city: delivery_address.city.trim(),
+    district: delivery_address.district.trim(),
+    state: delivery_address.state.trim(),
+    pincode: String(delivery_address.pincode).trim(),
+    landmark: delivery_address.landmark
+      ? delivery_address.landmark.trim()
+      : "",
+  };
+};
+
+// ==========================================
+// CREATE NORMAL SINGLE-FARMER ORDER
+// ==========================================
 exports.createOrder = async (req, res) => {
   try {
-    // STEP 3: Pull the crop being ordered and the quantity from the request body
-    const { crop_id, quantity } = req.body;
+    const {
+      crop_id,
+      quantity,
+      delivery_address,
+    } = req.body;
 
+    // ==========================================
+    // BASIC VALIDATION
+    // ==========================================
     if (!crop_id || !quantity) {
-      return res.status(400).json({ error: "crop_id and quantity are required" });
+      return res.status(400).json({
+        error: "crop_id and quantity are required",
+      });
     }
 
-    // STEP 4: Find the buyer_id belonging to the logged-in user
-    const [buyerRows] = await pool.query("SELECT buyer_id FROM buyers WHERE user_id = ?", [req.user.user_id]);
-    if (buyerRows.length === 0) {
-      return res.status(403).json({ error: "Only registered buyers can place orders" });
-    }
-    const buyer_id = buyerRows[0].buyer_id;
+    // ==========================================
+    // VALIDATE DELIVERY ADDRESS
+    // ==========================================
+    const addressError = validateAddress(delivery_address);
 
-    // STEP 5: Find the crop being ordered
-    const [cropRows] = await pool.query("SELECT * FROM crops WHERE crop_id = ?", [crop_id]);
-    if (cropRows.length === 0) {
-      return res.status(404).json({ error: "Crop not found" });
+    if (addressError) {
+      return res.status(400).json({
+        error: addressError,
+      });
     }
-    const crop = cropRows[0];
 
-    // STEP 6: Check the crop is actually available and has enough quantity
+    // ==========================================
+    // FIND BUYER PROFILE
+    // ==========================================
+    const buyer = await Buyer.findOne({
+      user_id: req.user.user_id,
+    });
+
+    if (!buyer) {
+      return res.status(403).json({
+        error: "Only registered buyers can place orders",
+      });
+    }
+
+    // ==========================================
+    // FIND CROP
+    // ==========================================
+    const crop = await Crop.findById(crop_id);
+
+    if (!crop) {
+      return res.status(404).json({
+        error: "Crop not found",
+      });
+    }
+
+    // ==========================================
+    // CHECK CROP STATUS
+    // ==========================================
     if (crop.status !== "available") {
-      return res.status(400).json({ error: "This crop is no longer available" });
-    }
-    if (quantity > crop.quantity) {
-      return res.status(400).json({ error: `Only ${crop.quantity} kg available` });
-    }
-
-    // STEP 7: Calculate the total price on the server — never trust a client-sent total
-    const total_amount = quantity * crop.price;
-
-    // STEP 8: Insert the order
-    const [result] = await pool.query(
-      "INSERT INTO orders (crop_id, buyer_id, quantity, total_amount, status) VALUES (?, ?, ?, ?, 'pending')",
-      [crop_id, buyer_id, quantity, total_amount]
-    );
-
-    // STEP 9: Notify the farmer that someone ordered their crop
-    const [farmerUserRows] = await pool.query(
-      "SELECT u.user_id FROM users u JOIN farmers f ON u.user_id = f.user_id WHERE f.farmer_id = ?",
-      [crop.farmer_id]
-    );
-    if (farmerUserRows.length > 0) {
-      await createNotification(
-        farmerUserRows[0].user_id,
-        `New order: ${quantity}kg of your crop was ordered!`,
-        "order"
-      );
+      return res.status(400).json({
+        error: "This crop is no longer available",
+      });
     }
 
-    // STEP 10: Reduce the crop's remaining quantity, marking it sold_out if it hits zero
-    const remaining = crop.quantity - quantity;
-    const newStatus = remaining <= 0 ? "sold_out" : "available";
-    await pool.query("UPDATE crops SET quantity = ?, status = ? WHERE crop_id = ?", [remaining, newStatus, crop_id]);
+    // ==========================================
+    // CHECK QUANTITY
+    // ==========================================
+    const orderQuantity = Number(quantity);
 
-    // STEP 11: Confirm success
+    if (orderQuantity <= 0) {
+      return res.status(400).json({
+        error: "Quantity must be greater than 0",
+      });
+    }
+
+    if (orderQuantity > crop.quantity) {
+      return res.status(400).json({
+        error: `Only ${crop.quantity} kg available`,
+      });
+    }
+
+    // ==========================================
+    // CALCULATE TOTAL
+    // ==========================================
+    const total_amount = orderQuantity * crop.price;
+
+    // ==========================================
+    // CREATE ORDER
+    // ==========================================
+    const order = await Order.create({
+      order_type: "single",
+
+      crop_id: crop._id,
+
+      buyer_id: buyer._id,
+
+      quantity: orderQuantity,
+
+      total_amount,
+
+      delivery_address: cleanAddress(delivery_address),
+
+      status: "pending",
+    });
+
+    // ==========================================
+    // FIND FARMER
+    // ==========================================
+    const farmer = await Farmer.findById(crop.farmer_id);
+
+    // ==========================================
+    // NOTIFY FARMER
+    // ==========================================
+    if (farmer) {
+      await Notification.create({
+        user_id: farmer.user_id,
+        related_user_id: req.user.user_id,
+        message: `New order: ${orderQuantity}kg of your ${crop.crop_name} was ordered!`,
+        type: "order",
+      });
+    }
+
+    // ==========================================
+    // REDUCE CROP QUANTITY
+    // ==========================================
+    const remaining = crop.quantity - orderQuantity;
+
+    crop.quantity = remaining;
+
+    if (remaining <= 0) {
+      crop.status = "sold_out";
+    } else {
+      crop.status = "available";
+    }
+
+    await crop.save();
+
+    // ==========================================
+    // LOW STOCK NOTIFICATION
+    // ==========================================
+    if (farmer && remaining > 0 && remaining <= 10) {
+      await Notification.create({
+        user_id: farmer.user_id,
+        message: `Low stock alert: only ${remaining}kg of ${crop.crop_name} left!`,
+        type: "stock",
+      });
+    }
+
+    // ==========================================
+    // SUCCESS RESPONSE
+    // ==========================================
     res.status(201).json({
       message: "Order placed successfully",
-      order_id: result.insertId,
-      total_amount
+      order_id: order._id,
+      order_type: "single",
+      total_amount,
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to place order" });
+    console.error("Create order error:", error);
+
+    res.status(500).json({
+      error: "Failed to place order",
+    });
   }
 };
 
-// STEP 1: Create and export an async function called getMyOrders (for buyers)
+// ==========================================
+// CREATE BULK / MULTI-FARMER ORDER
+// ==========================================
+exports.createBulkOrder = async (req, res) => {
+  const session = await mongoose.startSession();
+
+  try {
+    const {
+      crop_name,
+      quantity,
+      delivery_address,
+    } = req.body;
+
+    // ==========================================
+    // BASIC VALIDATION
+    // ==========================================
+    if (!crop_name || !String(crop_name).trim()) {
+      return res.status(400).json({
+        error: "crop_name is required",
+      });
+    }
+
+    const requestedQuantity = Number(quantity);
+
+    if (
+      !Number.isFinite(requestedQuantity) ||
+      requestedQuantity <= 0
+    ) {
+      return res.status(400).json({
+        error: "Quantity must be greater than 0",
+      });
+    }
+
+    // ==========================================
+    // VALIDATE DELIVERY ADDRESS
+    // ==========================================
+    const addressError = validateAddress(delivery_address);
+
+    if (addressError) {
+      return res.status(400).json({
+        error: addressError,
+      });
+    }
+
+    // ==========================================
+    // FIND BUYER
+    // ==========================================
+    const buyer = await Buyer.findOne({
+      user_id: req.user.user_id,
+    });
+
+    if (!buyer) {
+      return res.status(403).json({
+        error: "Only registered buyers can place orders",
+      });
+    }
+
+    // ==========================================
+    // FIND AVAILABLE CROPS
+    //
+    // Case-insensitive crop name matching.
+    // ==========================================
+    const requestedCropName = String(crop_name).trim();
+
+    const availableCrops = await Crop.find({
+      crop_name: {
+        $regex: `^${requestedCropName.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&"
+        )}$`,
+        $options: "i",
+      },
+
+      status: "available",
+
+      quantity: {
+        $gt: 0,
+      },
+    })
+      .sort({
+        createdAt: 1,
+      })
+      .session(session);
+
+    if (!availableCrops.length) {
+      return res.status(404).json({
+        error: `No available ${requestedCropName} found`,
+      });
+    }
+
+    // ==========================================
+    // CHECK TOTAL AVAILABLE QUANTITY
+    // ==========================================
+    const totalAvailable = availableCrops.reduce(
+      (sum, crop) => sum + Number(crop.quantity),
+      0
+    );
+
+    if (totalAvailable < requestedQuantity) {
+      return res.status(400).json({
+        error: `Only ${totalAvailable} kg of ${requestedCropName} is available across all farmers`,
+        requested_quantity: requestedQuantity,
+        available_quantity: totalAvailable,
+      });
+    }
+
+    // ==========================================
+    // CREATE ALLOCATIONS
+    // ==========================================
+    let remainingQuantity = requestedQuantity;
+
+    const allocations = [];
+
+    for (const crop of availableCrops) {
+      if (remainingQuantity <= 0) {
+        break;
+      }
+
+      const availableQuantity = Number(crop.quantity);
+
+      const allocatedQuantity = Math.min(
+        remainingQuantity,
+        availableQuantity
+      );
+
+      const allocationTotal =
+        allocatedQuantity * Number(crop.price);
+
+      allocations.push({
+        farmer_id: crop.farmer_id,
+        crop_id: crop._id,
+        quantity: allocatedQuantity,
+        price: Number(crop.price),
+        total_amount: allocationTotal,
+      });
+
+      remainingQuantity -= allocatedQuantity;
+    }
+
+    // ==========================================
+    // SAFETY CHECK
+    // ==========================================
+    if (remainingQuantity > 0) {
+      return res.status(400).json({
+        error: "Unable to fulfill the requested quantity",
+      });
+    }
+
+    // ==========================================
+    // CALCULATE TOTAL
+    // ==========================================
+    const totalAmount = allocations.reduce(
+      (sum, allocation) =>
+        sum + Number(allocation.total_amount),
+      0
+    );
+
+    // ==========================================
+    // START TRANSACTION
+    // ==========================================
+    session.startTransaction();
+
+    // ==========================================
+    // CREATE BULK ORDER
+    // ==========================================
+    const order = new Order({
+      order_type: "bulk",
+
+      buyer_id: buyer._id,
+
+      quantity: requestedQuantity,
+
+      total_amount: totalAmount,
+
+      crop_name: requestedCropName,
+
+      allocations,
+
+      delivery_address: cleanAddress(delivery_address),
+
+      status: "pending",
+    });
+
+    await order.save({
+      session,
+    });
+
+    // ==========================================
+    // UPDATE EVERY FARMER'S CROP
+    // ==========================================
+    for (const allocation of allocations) {
+      const crop = availableCrops.find(
+        (item) =>
+          String(item._id) ===
+          String(allocation.crop_id)
+      );
+
+      if (!crop) {
+        throw new Error(
+          `Crop ${allocation.crop_id} could not be found`
+        );
+      }
+
+      const remaining =
+        Number(crop.quantity) -
+        Number(allocation.quantity);
+
+      crop.quantity = remaining;
+
+      if (remaining <= 0) {
+        crop.status = "sold_out";
+      } else {
+        crop.status = "available";
+      }
+
+      await crop.save({
+        session,
+      });
+    }
+
+    // ==========================================
+    // COMMIT TRANSACTION
+    // ==========================================
+    await session.commitTransaction();
+
+    // ==========================================
+    // FARMER NOTIFICATIONS
+    // Do this after successful transaction.
+    // ==========================================
+    for (const allocation of allocations) {
+      const farmer = await Farmer.findById(
+        allocation.farmer_id
+      );
+
+      if (!farmer) {
+        continue;
+      }
+
+      await Notification.create({
+        user_id: farmer.user_id,
+
+        related_user_id: req.user.user_id,
+
+        message: `Bulk order: ${allocation.quantity}kg of ${requestedCropName} was ordered from your crop.`,
+
+        type: "order",
+      });
+
+      // ==========================================
+      // LOW STOCK NOTIFICATION
+      // ==========================================
+      const updatedCrop = await Crop.findById(
+        allocation.crop_id
+      );
+
+      if (
+        updatedCrop &&
+        updatedCrop.quantity > 0 &&
+        updatedCrop.quantity <= 10
+      ) {
+        await Notification.create({
+          user_id: farmer.user_id,
+
+          message: `Low stock alert: only ${updatedCrop.quantity}kg of ${requestedCropName} left!`,
+
+          type: "stock",
+        });
+      }
+    }
+
+    // ==========================================
+    // SUCCESS
+    // ==========================================
+    return res.status(201).json({
+      message: "Bulk order placed successfully",
+
+      order_id: order._id,
+
+      order_type: "bulk",
+
+      crop_name: requestedCropName,
+
+      requested_quantity: requestedQuantity,
+
+      total_amount: totalAmount,
+
+      farmers_count: allocations.length,
+
+      allocations: allocations.map(
+        (allocation) => ({
+          farmer_id: allocation.farmer_id,
+
+          crop_id: allocation.crop_id,
+
+          quantity: allocation.quantity,
+
+          price: allocation.price,
+
+          total_amount: allocation.total_amount,
+        })
+      ),
+    });
+
+  } catch (error) {
+    // ==========================================
+    // ABORT TRANSACTION
+    // ==========================================
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
+    console.error(
+      "Create bulk order error:",
+      error
+    );
+
+    return res.status(500).json({
+      error: "Failed to place bulk order",
+    });
+
+  } finally {
+    await session.endSession();
+  }
+};
+
+// ==========================================
+// GET BUYER ORDERS
+// ==========================================
 exports.getMyOrders = async (req, res) => {
   try {
-    // STEP 2: Find the buyer_id belonging to the logged-in user
-    const [buyerRows] = await pool.query("SELECT buyer_id FROM buyers WHERE user_id = ?", [req.user.user_id]);
-    if (buyerRows.length === 0) {
-      return res.status(403).json({ error: "Only registered buyers can view orders" });
+    const buyer = await Buyer.findOne({
+      user_id: req.user.user_id,
+    });
+
+    if (!buyer) {
+      return res.status(403).json({
+        error: "Only registered buyers can view orders",
+      });
     }
-    const buyer_id = buyerRows[0].buyer_id;
 
-    // STEP 3: Join orders with crops to show useful details, not just raw IDs
-    const [orders] = await pool.query(
-      `SELECT o.order_id, o.quantity, o.total_amount, o.status, o.order_date,
-              c.crop_name, c.crop_id
-       FROM orders o
-       JOIN crops c ON o.crop_id = c.crop_id
-       WHERE o.buyer_id = ?
-       ORDER BY o.order_date DESC`,
-      [buyer_id]
-    );
+    const orders = await Order.find({
+      buyer_id: buyer._id,
+    })
+      .populate("crop_id", "crop_name")
+      .populate(
+        "allocations.crop_id",
+        "crop_name"
+      )
+      .populate(
+        "allocations.farmer_id",
+        "user_id"
+      )
+      .sort({ createdAt: -1 });
 
-    res.json(orders);
+    const result = orders.map((order) => ({
+      order_id: order._id,
+
+      order_type: order.order_type,
+
+      quantity: order.quantity,
+
+      total_amount: order.total_amount,
+
+      status: order.status,
+
+      order_date: order.createdAt,
+
+      crop_name:
+        order.order_type === "bulk"
+          ? order.crop_name
+          : order.crop_id
+            ? order.crop_id.crop_name
+            : null,
+
+      crop_id:
+        order.order_type === "single"
+          ? order.crop_id
+            ? order.crop_id._id
+            : null
+          : null,
+
+      // ==========================================
+      // BULK ALLOCATIONS
+      // ==========================================
+      allocations:
+        order.order_type === "bulk"
+          ? order.allocations
+          : [],
+
+      // ==========================================
+      // DELIVERY ADDRESS
+      // ==========================================
+      delivery_address:
+        order.delivery_address,
+    }));
+
+    res.json(result);
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to fetch orders" });
+    console.error(
+      "Get buyer orders error:",
+      error
+    );
+
+    res.status(500).json({
+      error: "Failed to fetch orders",
+    });
   }
 };
 
-// STEP 1: Create and export an async function called getFarmerOrders
+// ==========================================
+// GET FARMER ORDERS
+// ==========================================
 exports.getFarmerOrders = async (req, res) => {
   try {
-    // STEP 2: Find the farmer_id belonging to the logged-in user
-    const [farmerRows] = await pool.query("SELECT farmer_id FROM farmers WHERE user_id = ?", [req.user.user_id]);
-    if (farmerRows.length === 0) {
-      return res.status(403).json({ error: "Only registered farmers can view orders" });
-    }
-    const farmer_id = farmerRows[0].farmer_id;
+    const farmer = await Farmer.findOne({
+      user_id: req.user.user_id,
+    });
 
-    // STEP 3: Join orders + crops (to filter by this farmer's crops) + buyers (to show who ordered)
-    const [orders] = await pool.query(
-      `SELECT o.order_id, o.quantity, o.total_amount, o.status, o.order_date,
-              c.crop_name, b.company_name
-       FROM orders o
-       JOIN crops c ON o.crop_id = c.crop_id
-       JOIN buyers b ON o.buyer_id = b.buyer_id
-       WHERE c.farmer_id = ?
-       ORDER BY o.order_date DESC`,
-      [farmer_id]
+    if (!farmer) {
+      return res.status(403).json({
+        error: "Only registered farmers can view orders",
+      });
+    }
+
+    // ==========================================
+    // SINGLE ORDER CROPS
+    // ==========================================
+    const crops = await Crop.find({
+      farmer_id: farmer._id,
+    }).select("_id crop_name");
+
+    const cropIds = crops.map(
+      (crop) => crop._id
     );
 
-    res.json(orders);
+    // ==========================================
+    // NORMAL SINGLE-FARMER ORDERS
+    // ==========================================
+    const singleOrders = await Order.find({
+      order_type: "single",
+
+      crop_id: {
+        $in: cropIds,
+      },
+    })
+      .populate(
+        "crop_id",
+        "crop_name"
+      )
+      .populate({
+        path: "buyer_id",
+        select: "company_name",
+      })
+      .sort({ createdAt: -1 });
+
+    // ==========================================
+    // BULK ORDERS
+    // ==========================================
+    const bulkOrders = await Order.find({
+      order_type: "bulk",
+
+      "allocations.farmer_id":
+        farmer._id,
+    })
+      .populate(
+        "allocations.crop_id",
+        "crop_name"
+      )
+      .populate({
+        path: "buyer_id",
+        select: "company_name",
+      })
+      .sort({ createdAt: -1 });
+
+    // ==========================================
+    // NORMAL ORDER RESULT
+    // ==========================================
+    const normalResults = singleOrders.map(
+      (order) => ({
+        order_id: order._id,
+
+        order_type: "single",
+
+        quantity: order.quantity,
+
+        total_amount: order.total_amount,
+
+        status: order.status,
+
+        order_date: order.createdAt,
+
+        crop_name:
+          order.crop_id
+            ? order.crop_id.crop_name
+            : null,
+
+        company_name:
+          order.buyer_id
+            ? order.buyer_id.company_name
+            : null,
+
+        delivery_address:
+          order.delivery_address,
+      })
+    );
+
+    // ==========================================
+    // BULK ORDER RESULT
+    // Only return this farmer's allocation.
+    // ==========================================
+    const bulkResults = [];
+
+    for (const order of bulkOrders) {
+      const farmerAllocations =
+        order.allocations.filter(
+          (allocation) =>
+            String(
+              allocation.farmer_id
+            ) === String(farmer._id)
+        );
+
+      for (const allocation of farmerAllocations) {
+        bulkResults.push({
+          order_id: order._id,
+
+          order_type: "bulk",
+
+          quantity: allocation.quantity,
+
+          total_amount:
+            allocation.total_amount,
+
+          status: order.status,
+
+          order_date: order.createdAt,
+
+          crop_name:
+            allocation.crop_id
+              ? allocation.crop_id.crop_name
+              : order.crop_name,
+
+          company_name:
+            order.buyer_id
+              ? order.buyer_id.company_name
+              : null,
+
+          delivery_address:
+            order.delivery_address,
+
+          bulk_order_quantity:
+            order.quantity,
+
+          bulk_order_total:
+            order.total_amount,
+        });
+      }
+    }
+
+    // ==========================================
+    // COMBINE BOTH TYPES
+    // ==========================================
+    const result = [
+      ...normalResults,
+      ...bulkResults,
+    ].sort(
+      (a, b) =>
+        new Date(b.order_date) -
+        new Date(a.order_date)
+    );
+
+    res.json(result);
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to fetch orders" });
+    console.error(
+      "Get farmer orders error:",
+      error
+    );
+
+    res.status(500).json({
+      error: "Failed to fetch orders",
+    });
   }
 };

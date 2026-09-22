@@ -8,5 +8,6 @@ router.get("/my-crops", authMiddleware, dashboardController.getMyCrops);
 router.get("/farmer-revenue", authMiddleware, dashboardController.getFarmerRevenueByMonth);
 router.get("/farmer-top-crops", authMiddleware, dashboardController.getFarmerTopCrops);
 router.get("/buyer-spending", authMiddleware, dashboardController.getBuyerSpending);
+router.get("/weekly-digest", authMiddleware, dashboardController.getWeeklyDigest);
 
 module.exports = router;

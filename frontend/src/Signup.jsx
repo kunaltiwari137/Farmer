@@ -13,32 +13,48 @@ function Signup({ onLoginSuccess }) {
 
   const navigate = useNavigate();
 
+  // const handleSubmit = async (e) => {
+  //   e.preventDefault();
+  //   setError("");
+  //   setSuccess("");
+
+  //   try {
+  //     // STEP 1: Create the account
+  //     await axios.post("http://localhost:5000/api/auth/signup", {
+  //       name, email, password, phone, role
+  //     });
+
+  //     // STEP 2: Immediately log them in after successful signup, for a smooth experience
+  //     const loginResponse = await axios.post("http://localhost:5000/api/auth/login", {
+  //       email, password
+  //     });
+
+  //     localStorage.setItem("token", loginResponse.data.token);
+  //     localStorage.setItem("user", JSON.stringify(loginResponse.data.user));
+  //     onLoginSuccess(loginResponse.data.user);
+
+  //     navigate("/");
+
+  //   } catch (err) {
+  //     setError(err.response?.data?.error || "Signup failed");
+  //   }
+  // };
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
-    setSuccess("");
+  e.preventDefault();
+  setError("");
+  setSuccess("");
 
-    try {
-      // STEP 1: Create the account
-      await axios.post("http://localhost:5000/api/auth/signup", {
-        name, email, password, phone, role
-      });
+  try {
+    await axios.post("http://localhost:5000/api/auth/signup", {
+      name, email, password, phone, role
+    });
 
-      // STEP 2: Immediately log them in after successful signup, for a smooth experience
-      const loginResponse = await axios.post("http://localhost:5000/api/auth/login", {
-        email, password
-      });
+    setSuccess("Signup successful! Please wait for admin approval before logging in.");
 
-      localStorage.setItem("token", loginResponse.data.token);
-      localStorage.setItem("user", JSON.stringify(loginResponse.data.user));
-      onLoginSuccess(loginResponse.data.user);
-
-      navigate("/");
-
-    } catch (err) {
-      setError(err.response?.data?.error || "Signup failed");
-    }
-  };
+  } catch (err) {
+    setError(err.response?.data?.error || "Signup failed");
+  }
+};
 
   const inputStyle = { background: "var(--soil)", border: "1px solid var(--line)", color: "var(--mist)" };
 

@@ -1,107 +1,420 @@
-const pool = require("../config/db");
+const User = require("../models/User");
+const Farmer = require("../models/Farmer");
+const Buyer = require("../models/Buyer");
+const Crop = require("../models/Crop");
+const Order = require("../models/Order");
+const Payment = require("../models/Payment");
 
-// STEP 1: Get all users on the platform
+// ==========================================
+// GET ALL USERS
+// ==========================================
 exports.getAllUsers = async (req, res) => {
   try {
-    const [users] = await pool.query(
-      "SELECT user_id, name, email, phone, role, created_at FROM users ORDER BY created_at DESC"
-    );
+    const users = await User.find()
+      .select("name email phone role status createdAt")
+      .sort({ createdAt: -1 });
+
     res.json(users);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to fetch users" });
+    console.error("getAllUsers error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch users",
+    });
   }
 };
 
-// STEP 2: Get all farmers, including their verification status
+// ==========================================
+// GET ALL FARMERS
+// ==========================================
 exports.getAllFarmers = async (req, res) => {
   try {
-    const [farmers] = await pool.query(
-      `SELECT f.farmer_id, f.village, f.district, f.state, f.verified,
-              u.name, u.email, u.user_id
-       FROM farmers f JOIN users u ON f.user_id = u.user_id
-       ORDER BY f.verified ASC, u.name ASC`
-    );
-    res.json(farmers);
+    const farmers = await Farmer.find()
+      .populate(
+        "user_id",
+        "name email phone role status createdAt updatedAt"
+      )
+      .sort({ verified: 1 });
+
+    const result = farmers.map((f) => ({
+      farmer_id: f._id,
+
+      name: f.user_id ? f.user_id.name : "Unknown",
+
+      email: f.user_id ? f.user_id.email : "",
+
+      phone: f.user_id ? f.user_id.phone : "",
+
+      role: f.user_id ? f.user_id.role : "",
+
+      status: f.user_id ? f.user_id.status : "",
+
+      village: f.village,
+
+      district: f.district,
+
+      state: f.state,
+
+      verified: f.verified,
+
+      createdAt: f.createdAt,
+
+      updatedAt: f.updatedAt,
+    }));
+
+    res.json(result);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to fetch farmers" });
+    console.error("getAllFarmers error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch farmers",
+    });
   }
 };
 
-// STEP 3: Verify (or unverify) a specific farmer
+// ==========================================
+// GET SINGLE FARMER DETAILS
+// ==========================================
+exports.getFarmerDetails = async (req, res) => {
+  try {
+    const { farmer_id } = req.params;
+
+    const farmer = await Farmer.findById(farmer_id).populate(
+      "user_id",
+      "name email phone role status createdAt updatedAt"
+    );
+
+    if (!farmer) {
+      return res.status(404).json({
+        error: "Farmer not found",
+      });
+    }
+
+    res.json(farmer);
+  } catch (error) {
+    console.error("getFarmerDetails error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch farmer details",
+    });
+  }
+};
+
+// ==========================================
+// GET ALL BUYERS
+// ==========================================
+exports.getAllBuyers = async (req, res) => {
+  try {
+    const buyers = await Buyer.find()
+      .populate(
+        "user_id",
+        "name email phone role status createdAt updatedAt"
+      )
+      .sort({ createdAt: -1 });
+
+    res.json(buyers);
+  } catch (error) {
+    console.error("getAllBuyers error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch buyers",
+    });
+  }
+};
+
+// ==========================================
+// GET SINGLE BUYER DETAILS
+// ==========================================
+exports.getBuyerDetails = async (req, res) => {
+  try {
+    const { buyer_id } = req.params;
+
+    const buyer = await Buyer.findById(buyer_id).populate(
+      "user_id",
+      "name email phone role status createdAt updatedAt"
+    );
+
+    if (!buyer) {
+      return res.status(404).json({
+        error: "Buyer not found",
+      });
+    }
+
+    res.json(buyer);
+  } catch (error) {
+    console.error("getBuyerDetails error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch buyer details",
+    });
+  }
+};
+
+// ==========================================
+// VERIFY / UNVERIFY FARMER
+// ==========================================
 exports.verifyFarmer = async (req, res) => {
   try {
     const { farmer_id } = req.params;
     const { verified } = req.body;
 
-    await pool.query("UPDATE farmers SET verified = ? WHERE farmer_id = ?", [verified, farmer_id]);
+    const farmer = await Farmer.findById(farmer_id);
 
-    res.json({ message: `Farmer ${verified ? "verified" : "unverified"} successfully` });
+    if (!farmer) {
+      return res.status(404).json({
+        error: "Farmer not found",
+      });
+    }
+
+    farmer.verified = verified;
+
+    await farmer.save();
+
+    res.json({
+      message: `Farmer ${
+        verified ? "verified" : "unverified"
+      } successfully`,
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to update farmer verification" });
+    console.error("verifyFarmer error:", error);
+
+    res.status(500).json({
+      error: "Failed to update farmer verification",
+    });
   }
 };
 
-// STEP 4: Get every order on the platform, with full context (crop, buyer, farmer)
+// ==========================================
+// GET ALL ORDERS
+// ==========================================
 exports.getAllOrders = async (req, res) => {
   try {
-    const [orders] = await pool.query(
-      `SELECT o.order_id, o.quantity, o.total_amount, o.status, o.order_date,
-              c.crop_name, b.company_name, uf.name as farmer_name
-       FROM orders o
-       JOIN crops c ON o.crop_id = c.crop_id
-       JOIN buyers b ON o.buyer_id = b.buyer_id
-       JOIN farmers f ON c.farmer_id = f.farmer_id
-       JOIN users uf ON f.user_id = uf.user_id
-       ORDER BY o.order_date DESC`
-    );
-    res.json(orders);
+    const orders = await Order.find()
+      .populate("crop_id", "crop_name")
+      .populate("buyer_id", "company_name")
+      .sort({ createdAt: -1 });
+
+    const result = orders.map((o) => ({
+      order_id: o._id,
+
+      quantity: o.quantity,
+
+      total_amount: o.total_amount,
+
+      status: o.status,
+
+      order_date: o.createdAt,
+
+      crop_name: o.crop_id
+        ? o.crop_id.crop_name
+        : null,
+
+      company_name: o.buyer_id
+        ? o.buyer_id.company_name
+        : null,
+    }));
+
+    res.json(result);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to fetch orders" });
+    console.error("getAllOrders error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch orders",
+    });
   }
 };
 
-// STEP 5: Admin can remove any crop listing (e.g. fraudulent or inappropriate)
+// ==========================================
+// REMOVE CROP
+// ==========================================
 exports.removeCrop = async (req, res) => {
   try {
     const { crop_id } = req.params;
 
-    const [existing] = await pool.query("SELECT * FROM crops WHERE crop_id = ?", [crop_id]);
-    if (existing.length === 0) {
-      return res.status(404).json({ error: "Crop not found" });
+    const existing = await Crop.findById(crop_id);
+
+    if (!existing) {
+      return res.status(404).json({
+        error: "Crop not found",
+      });
     }
 
-    await pool.query("DELETE FROM crops WHERE crop_id = ?", [crop_id]);
-    res.json({ message: "Crop listing removed" });
+    await Crop.findByIdAndDelete(crop_id);
+
+    res.json({
+      message: "Crop listing removed",
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to remove crop" });
+    console.error("removeCrop error:", error);
+
+    res.status(500).json({
+      error: "Failed to remove crop",
+    });
   }
 };
 
-// STEP 6: Platform-wide summary stats
-exports.getPlatformStats = async (req, res) => {
+// ==========================================
+// FLAG CROP
+// ==========================================
+exports.flagCrop = async (req, res) => {
   try {
-    const [userCounts] = await pool.query(
-      "SELECT role, COUNT(*) as count FROM users GROUP BY role"
-    );
-    const [cropCount] = await pool.query("SELECT COUNT(*) as total FROM crops");
-    const [orderCount] = await pool.query("SELECT COUNT(*) as total FROM orders");
-    const [revenue] = await pool.query(
-      "SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE payment_status = 'released'"
-    );
+    const { crop_id } = req.params;
+    const { reason } = req.body;
+
+    const crop = await Crop.findById(crop_id);
+
+    if (!crop) {
+      return res.status(404).json({
+        error: "Crop not found",
+      });
+    }
+
+    crop.status = "flagged";
+
+    crop.flag_reason =
+      reason || "Policy violation";
+
+    await crop.save();
 
     res.json({
-      users_by_role: userCounts,
-      total_crops: cropCount[0].total,
-      total_orders: orderCount[0].total,
-      total_platform_revenue: revenue[0].total,
+      message: "Crop flagged",
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to fetch platform stats" });
+    console.error("flagCrop error:", error);
+
+    res.status(500).json({
+      error: "Failed to flag crop",
+    });
+  }
+};
+
+// ==========================================
+// PLATFORM STATS
+// ==========================================
+exports.getPlatformStats = async (req, res) => {
+  try {
+    const userCounts = await User.aggregate([
+      {
+        $group: {
+          _id: "$role",
+          count: {
+            $sum: 1,
+          },
+        },
+      },
+    ]);
+
+    const total_crops =
+      await Crop.countDocuments();
+
+    const total_orders =
+      await Order.countDocuments();
+
+    const revenueResult =
+      await Payment.aggregate([
+        {
+          $match: {
+            payment_status: "released",
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: "$amount",
+            },
+          },
+        },
+      ]);
+
+    res.json({
+      users_by_role: userCounts.map((u) => ({
+        role: u._id,
+        count: u.count,
+      })),
+
+      total_crops,
+
+      total_orders,
+
+      total_platform_revenue:
+        revenueResult[0]?.total || 0,
+    });
+  } catch (error) {
+    console.error("getPlatformStats error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch platform stats",
+    });
+  }
+};
+
+// ==========================================
+// GET PENDING USERS
+// ==========================================
+exports.getPendingUsers = async (req, res) => {
+  try {
+    const pendingUsers = await User.find({
+      status: "pending",
+    })
+      .select(
+        "name email phone role createdAt"
+      )
+      .sort({ createdAt: -1 });
+
+    res.json(pendingUsers);
+  } catch (error) {
+    console.error("getPendingUsers error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch pending users",
+    });
+  }
+};
+
+// ==========================================
+// APPROVE / REJECT USER
+// ==========================================
+exports.reviewUser = async (req, res) => {
+  try {
+    const { user_id } = req.params;
+
+    const { decision } = req.body;
+
+    if (
+      decision !== "approved" &&
+      decision !== "rejected"
+    ) {
+      return res.status(400).json({
+        error:
+          "decision must be 'approved' or 'rejected'",
+      });
+    }
+
+    const user =
+      await User.findById(user_id);
+
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    user.status = decision;
+
+    await user.save();
+
+    res.json({
+      message: `User ${decision}`,
+    });
+  } catch (error) {
+    console.error(
+      "reviewUser error:",
+      error
+    );
+
+    res.status(500).json({
+      error: "Failed to review user",
+    });
   }
 };

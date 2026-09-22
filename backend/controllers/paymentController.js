@@ -1,143 +1,476 @@
-// STEP 1: Bring in the database pool
-const pool = require("../config/db");
+const Payment = require("../models/Payment");
+const Order = require("../models/Order");
+const Buyer = require("../models/Buyer");
+const Farmer = require("../models/Farmer");
+const Crop = require("../models/Crop");
 const { createNotification } = require("./notificationController");
 
-// STEP 2: Buyer initiates payment for one of their orders
+// ==========================================
+// BUYER CREATES PAYMENT
+// ==========================================
+
 exports.createPayment = async (req, res) => {
   try {
     const { order_id } = req.body;
 
     if (!order_id) {
-      return res.status(400).json({ error: "order_id is required" });
+      return res.status(400).json({
+        error: "order_id is required",
+      });
     }
 
-    // STEP 3: Find the buyer_id belonging to the logged-in user
-    const [buyerRows] = await pool.query("SELECT buyer_id FROM buyers WHERE user_id = ?", [req.user.user_id]);
-    if (buyerRows.length === 0) {
-      return res.status(403).json({ error: "Only registered buyers can make payments" });
-    }
-    const buyer_id = buyerRows[0].buyer_id;
+    // ==========================================
+    // FIND BUYER PROFILE
+    // ==========================================
 
-    // STEP 4: Find the order and confirm it belongs to this buyer
-    const [orderRows] = await pool.query("SELECT * FROM orders WHERE order_id = ?", [order_id]);
-    if (orderRows.length === 0) {
-      return res.status(404).json({ error: "Order not found" });
-    }
-    const order = orderRows[0];
+    const buyer = await Buyer.findOne({
+      user_id: req.user.user_id,
+    });
 
-    if (order.buyer_id !== buyer_id) {
-      return res.status(403).json({ error: "You can only pay for your own orders" });
+    if (!buyer) {
+      return res.status(403).json({
+        error: "Only registered buyers can make payments",
+      });
     }
 
-    // STEP 5: Prevent paying twice for the same order
-    const [existingPayment] = await pool.query("SELECT * FROM payments WHERE order_id = ?", [order_id]);
-    if (existingPayment.length > 0) {
-      return res.status(409).json({ error: "Payment already exists for this order" });
+    // ==========================================
+    // FIND ORDER
+    // ==========================================
+
+    const order = await Order.findById(order_id);
+
+    if (!order) {
+      return res.status(404).json({
+        error: "Order not found",
+      });
     }
 
-    // STEP 6: Simulate a payment transaction ID (a real gateway like Razorpay would give you this)
-    const transaction_id = "TXN" + Date.now();
+    // ==========================================
+    // CHECK ORDER OWNERSHIP
+    // ==========================================
 
-    // STEP 7: Insert the payment as 'held' — money committed, not yet released to the farmer
-    const [result] = await pool.query(
-      "INSERT INTO payments (order_id, amount, payment_status, transaction_id) VALUES (?, ?, 'held', ?)",
-      [order_id, order.total_amount, transaction_id]
-    );
-
-    // STEP 8: Move the order from 'pending' to 'confirmed' now that payment is secured
-    await pool.query("UPDATE orders SET status = 'confirmed' WHERE order_id = ?", [order_id]);
-
-    // STEP 9: Notify the farmer that payment has been received and held
-    const [farmerUserRows] = await pool.query(
-      `SELECT u.user_id FROM users u JOIN farmers f ON u.user_id = f.user_id
-       JOIN crops c ON f.farmer_id = c.farmer_id WHERE c.crop_id = ?`,
-      [order.crop_id]
-    );
-    if (farmerUserRows.length > 0) {
-      await createNotification(farmerUserRows[0].user_id, "Payment received and held for your order!", "payment");
+    if (
+      order.buyer_id.toString() !==
+      buyer._id.toString()
+    ) {
+      return res.status(403).json({
+        error:
+          "You can only pay for your own orders",
+      });
     }
 
-    res.status(201).json({
-      message: "Payment successful, held in escrow",
-      payment_id: result.insertId,
-      transaction_id
+    // ==========================================
+    // PREVENT DUPLICATE PAYMENT
+    // ==========================================
+
+    const existingPayment =
+      await Payment.findOne({
+        order_id: order._id,
+      });
+
+    if (existingPayment) {
+      return res.status(409).json({
+        error:
+          "Payment already exists for this order",
+      });
+    }
+
+    // ==========================================
+    // SIMULATE TRANSACTION ID
+    // ==========================================
+
+    const transaction_id =
+      "TXN" + Date.now();
+
+    // ==========================================
+    // CREATE PAYMENT
+    // ==========================================
+
+    const payment =
+      await Payment.create({
+        order_id: order._id,
+        amount: order.total_amount,
+        payment_status: "held",
+        transaction_id,
+      });
+
+    // ==========================================
+    // CONFIRM ORDER
+    // ==========================================
+
+    order.status = "confirmed";
+
+    await order.save();
+
+    // ==========================================
+    // BULK ORDER PAYMENT
+    // ==========================================
+
+    if (
+      order.order_type === "bulk"
+    ) {
+      /*
+       * Bulk orders can contain multiple
+       * farmer allocations.
+       *
+       * Notify every farmer involved
+       * in this bulk order.
+       */
+
+      for (const allocation of order.allocations) {
+        try {
+          const farmer =
+            await Farmer.findById(
+              allocation.farmer_id
+            );
+
+          if (!farmer) {
+            continue;
+          }
+
+          await createNotification(
+            farmer.user_id,
+            `Payment received and held for your bulk order allocation of ${allocation.quantity}kg ${order.crop_name}!`,
+            "payment"
+          );
+        } catch (notificationError) {
+          console.error(
+            "Bulk farmer payment notification error:",
+            notificationError
+          );
+        }
+      }
+    }
+
+    // ==========================================
+    // NORMAL SINGLE-FARMER ORDER PAYMENT
+    // ==========================================
+
+    else {
+      const crop =
+        await Crop.findById(
+          order.crop_id
+        );
+
+      if (crop) {
+        const farmer =
+          await Farmer.findById(
+            crop.farmer_id
+          );
+
+        if (farmer) {
+          await createNotification(
+            farmer.user_id,
+            "Payment received and held for your order!",
+            "payment"
+          );
+        }
+      }
+    }
+
+    // ==========================================
+    // RESPONSE
+    // ==========================================
+
+    return res.status(201).json({
+      message:
+        "Payment successful, held in escrow",
+      payment_id:
+        payment._id,
+      transaction_id,
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Payment failed" });
+    console.error(
+      "Create payment error:",
+      error
+    );
+
+    return res.status(500).json({
+      error: "Payment failed",
+    });
   }
 };
 
-// STEP 9: Farmer updates order status; if marked 'delivered', automatically release payment
-exports.updateOrderStatus = async (req, res) => {
+
+// ==========================================
+// FARMER UPDATES ORDER STATUS
+// ==========================================
+
+exports.updateOrderStatus = async (
+  req,
+  res
+) => {
   try {
-    const { order_id } = req.params;
-    const { status } = req.body;
+    const {
+      order_id,
+    } = req.params;
 
-    const validStatuses = ["confirmed", "shipped", "delivered", "cancelled"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: "Invalid status value" });
+    const {
+      status,
+    } = req.body;
+
+    // ==========================================
+    // VALIDATE STATUS
+    // ==========================================
+
+    const validStatuses = [
+      "confirmed",
+      "shipped",
+      "delivered",
+      "cancelled",
+    ];
+
+    if (
+      !validStatuses.includes(status)
+    ) {
+      return res.status(400).json({
+        error:
+          "Invalid status value",
+      });
     }
 
-    // STEP 10: Find the farmer_id belonging to the logged-in user
-    const [farmerRows] = await pool.query("SELECT farmer_id FROM farmers WHERE user_id = ?", [req.user.user_id]);
-    if (farmerRows.length === 0) {
-      return res.status(403).json({ error: "Only registered farmers can update order status" });
-    }
-    const farmer_id = farmerRows[0].farmer_id;
+    // ==========================================
+    // FIND FARMER PROFILE
+    // ==========================================
 
-    // STEP 11: Confirm this order is actually for one of this farmer's crops
-    const [orderRows] = await pool.query(
-      `SELECT o.*, c.farmer_id FROM orders o JOIN crops c ON o.crop_id = c.crop_id WHERE o.order_id = ?`,
-      [order_id]
-    );
-    if (orderRows.length === 0) {
-      return res.status(404).json({ error: "Order not found" });
-    }
-    if (orderRows[0].farmer_id !== farmer_id) {
-      return res.status(403).json({ error: "You can only update orders on your own crops" });
+    const farmer =
+      await Farmer.findOne({
+        user_id: req.user.user_id,
+      });
+
+    if (!farmer) {
+      return res.status(403).json({
+        error:
+          "Only registered farmers can update order status",
+      });
     }
 
-    // STEP 12: Update the order's status
-    await pool.query("UPDATE orders SET status = ? WHERE order_id = ?", [status, order_id]);
+    // ==========================================
+    // FIND ORDER
+    // ==========================================
 
-    // STEP 13: Notify the buyer that their order status changed
-    const [buyerUserRows] = await pool.query(
-      "SELECT u.user_id FROM users u JOIN buyers b ON u.user_id = b.user_id WHERE b.buyer_id = ?",
-      [orderRows[0].buyer_id]
-    );
-    if (buyerUserRows.length > 0) {
-      await createNotification(buyerUserRows[0].user_id, `Your order status changed to: ${status}`, "order");
+    const order =
+      await Order.findById(
+        order_id
+      );
+
+    if (!order) {
+      return res.status(404).json({
+        error: "Order not found",
+      });
     }
 
-    // STEP 14: If delivered, release the held payment to the farmer
-    if (status === "delivered") {
-      await pool.query("UPDATE payments SET payment_status = 'released' WHERE order_id = ?", [order_id]);
+    // ==========================================
+    // BULK ORDER
+    // ==========================================
+
+    if (
+      order.order_type === "bulk"
+    ) {
+      /*
+       * A bulk order contains allocations
+       * for multiple farmers.
+       *
+       * Check whether this farmer is
+       * actually part of the order.
+       */
+
+      const farmerAllocation =
+        order.allocations.find(
+          (allocation) =>
+            allocation.farmer_id
+              .toString() ===
+            farmer._id.toString()
+        );
+
+      if (!farmerAllocation) {
+        return res.status(403).json({
+          error:
+            "You can only update bulk orders containing your own allocation",
+        });
+      }
+
+      // ========================================
+      // UPDATE BULK ORDER STATUS
+      // ========================================
+
+      order.status = status;
+
+      await order.save();
+
+      // ========================================
+      // NOTIFY BUYER
+      // ========================================
+
+      const buyer =
+        await Buyer.findById(
+          order.buyer_id
+        );
+
+      if (buyer) {
+        await createNotification(
+          buyer.user_id,
+          `Your bulk order status changed to: ${status}`,
+          "order"
+        );
+      }
+
+      // ========================================
+      // RELEASE PAYMENT
+      // ========================================
+
+      if (
+        status === "delivered"
+      ) {
+        await Payment.findOneAndUpdate(
+          {
+            order_id:
+              order._id,
+          },
+          {
+            payment_status:
+              "released",
+          }
+        );
+      }
+
+      return res.json({
+        message:
+          `Bulk order status updated to '${status}'`,
+      });
     }
 
-    res.json({ message: `Order status updated to '${status}'` });
+    // ==========================================
+    // NORMAL SINGLE ORDER
+    // ==========================================
+
+    const crop =
+      await Crop.findById(
+        order.crop_id
+      );
+
+    if (!crop) {
+      return res.status(404).json({
+        error: "Crop not found",
+      });
+    }
+
+    // ==========================================
+    // CHECK FARMER OWNERSHIP
+    // ==========================================
+
+    if (
+      crop.farmer_id.toString() !==
+      farmer._id.toString()
+    ) {
+      return res.status(403).json({
+        error:
+          "You can only update orders on your own crops",
+      });
+    }
+
+    // ==========================================
+    // UPDATE ORDER STATUS
+    // ==========================================
+
+    order.status = status;
+
+    await order.save();
+
+    // ==========================================
+    // FIND BUYER
+    // ==========================================
+
+    const buyer =
+      await Buyer.findById(
+        order.buyer_id
+      );
+
+    if (buyer) {
+      await createNotification(
+        buyer.user_id,
+        `Your order status changed to: ${status}`,
+        "order"
+      );
+    }
+
+    // ==========================================
+    // RELEASE PAYMENT WHEN DELIVERED
+    // ==========================================
+
+    if (
+      status === "delivered"
+    ) {
+      await Payment.findOneAndUpdate(
+        {
+          order_id:
+            order._id,
+        },
+        {
+          payment_status:
+            "released",
+        }
+      );
+    }
+
+    // ==========================================
+    // RESPONSE
+    // ==========================================
+
+    return res.json({
+      message:
+        `Order status updated to '${status}'`,
+    });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to update order status" });
+    console.error(
+      "Update order status error:",
+      error
+    );
+
+    return res.status(500).json({
+      error:
+        "Failed to update order status",
+    });
   }
 };
 
-// STEP 14: View the payment for a specific order (either the buyer or the farmer can check)
-exports.getPaymentByOrder = async (req, res) => {
-  try {
-    const { order_id } = req.params;
 
-    const [payments] = await pool.query("SELECT * FROM payments WHERE order_id = ?", [order_id]);
-    if (payments.length === 0) {
-      return res.status(404).json({ error: "No payment found for this order" });
+// ==========================================
+// GET PAYMENT FOR ORDER
+// ==========================================
+
+exports.getPaymentByOrder =
+  async (req, res) => {
+    try {
+      const {
+        order_id,
+      } = req.params;
+
+      const payment =
+        await Payment.findOne({
+          order_id,
+        });
+
+      if (!payment) {
+        return res.status(404).json({
+          error:
+            "No payment found for this order",
+        });
+      }
+
+      return res.json(payment);
+
+    } catch (error) {
+      console.error(
+        "Get payment error:",
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          "Failed to fetch payment",
+      });
     }
-
-    res.json(payments[0]);
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to fetch payment" });
-  }
-};
+  };

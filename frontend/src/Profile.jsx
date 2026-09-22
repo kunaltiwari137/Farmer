@@ -10,7 +10,6 @@ function Profile({ user }) {
 
       <div className="rounded-2xl p-7" style={{ background: "var(--soil-2)", border: "1px solid var(--line)" }}>
         <div className="flex items-center gap-4 mb-6">
-          {/* STEP 1: A simple avatar circle using the first letter of their name */}
           <div
             className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-display"
             style={{ background: "var(--gold)", color: "var(--ink)" }}
@@ -34,7 +33,6 @@ function Profile({ user }) {
           </div>
         </div>
 
-        {/* STEP 2: Role-specific quick links */}
         <div className="mt-6 pt-6 flex flex-col gap-2" style={{ borderTop: "1px solid var(--line)" }}>
           {user.role === "buyer" && (
             <Link to="/buyer-profile" className="text-sm" style={{ color: "var(--gold)" }}>
@@ -46,6 +44,10 @@ function Profile({ user }) {
               Go to Farm Dashboard →
             </Link>
           )}
+          {/* STEP 1: Sabke liye — role kuch bhi ho, password change kar sakein */}
+          <Link to="/change-password" className="text-sm" style={{ color: "var(--gold)" }}>
+            Change Password →
+          </Link>
         </div>
       </div>
     </div>
