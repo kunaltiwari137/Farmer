@@ -75,8 +75,6 @@ function Navbar({ user, onLogout }) {
                 My Orders
               </Link>
 
-              {/* MY BULK REQUESTS */}
-
               <Link
                 to="/my-bulk-requests"
                 className={`${linkStyle} flex items-center gap-1`}
@@ -84,16 +82,12 @@ function Navbar({ user, onLogout }) {
                 📦 My Bulk Requests
               </Link>
 
-              {/* CART */}
-
               <Link
                 to="/cart"
                 className={`${linkStyle} flex items-center gap-1`}
               >
                 🛒 Cart
               </Link>
-
-              {/* WISHLIST */}
 
               <Link
                 to="/wishlist"
@@ -122,6 +116,15 @@ function Navbar({ user, onLogout }) {
                 className={linkStyle}
               >
                 My Farm Orders
+              </Link>
+
+              {/* DISEASE DETECTION */}
+
+              <Link
+                to="/disease-detection"
+                className={`${linkStyle} flex items-center gap-1`}
+              >
+                🌿 Disease Detection
               </Link>
 
               {/* BULK REQUESTS */}
@@ -307,8 +310,6 @@ function Navbar({ user, onLogout }) {
                 My Orders
               </Link>
 
-              {/* MY BULK REQUESTS */}
-
               <Link
                 to="/my-bulk-requests"
                 onClick={closeMenu}
@@ -317,8 +318,6 @@ function Navbar({ user, onLogout }) {
                 📦 My Bulk Requests
               </Link>
 
-              {/* CART */}
-
               <Link
                 to="/cart"
                 onClick={closeMenu}
@@ -326,8 +325,6 @@ function Navbar({ user, onLogout }) {
               >
                 🛒 Cart
               </Link>
-
-              {/* WISHLIST */}
 
               <Link
                 to="/wishlist"
@@ -359,6 +356,16 @@ function Navbar({ user, onLogout }) {
                 className={linkStyle}
               >
                 My Farm Orders
+              </Link>
+
+              {/* DISEASE DETECTION */}
+
+              <Link
+                to="/disease-detection"
+                onClick={closeMenu}
+                className={`${linkStyle} flex items-center gap-2`}
+              >
+                🌿 Disease Detection
               </Link>
 
               {/* BULK REQUESTS */}

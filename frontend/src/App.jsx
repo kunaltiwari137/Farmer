@@ -27,6 +27,7 @@ import BulkOrder from "./BulkOrder";
 import BulkRequests from "./BulkRequests";
 import MyBulkRequests from "./MyBulkRequests";
 import ChangePassword from "./ChangePassword";
+import DiseaseDetection from "./DiseaseDetection";
 
 function App() {
   const [user, setUser] = useState(() => {
@@ -211,6 +212,19 @@ function App() {
             element={
               <ProtectedRoute>
                 <FarmerDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ======================================
+              DISEASE DETECTION
+          ====================================== */}
+
+          <Route
+            path="/disease-detection"
+            element={
+              <ProtectedRoute>
+                <DiseaseDetection />
               </ProtectedRoute>
             }
           />

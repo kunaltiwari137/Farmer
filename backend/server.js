@@ -11,25 +11,12 @@ const {
 const connectDB = require("./config/mongodb");
 const { initSocket } = require("./config/socket");
 
-// ==========================================
-// CONNECT DATABASE
-// ==========================================
-connectDB();
 
 // ==========================================
 // EXPRESS APP
 // ==========================================
 const app = express();
 
-// ==========================================
-// HTTP SERVER
-// ==========================================
-const server = http.createServer(app);
-
-// ==========================================
-// SOCKET.IO
-// ==========================================
-initSocket(server);
 
 // ==========================================
 // CORS
@@ -45,15 +32,18 @@ app.use(
   })
 );
 
+
 // ==========================================
 // JSON BODY PARSER
 // ==========================================
 app.use(express.json());
 
+
 // ==========================================
 // GENERAL RATE LIMITER
 // ==========================================
 app.use(generalLimiter);
+
 
 // ==========================================
 // ROOT
@@ -61,6 +51,7 @@ app.use(generalLimiter);
 app.get("/", (req, res) => {
   res.send("AgriConnect API is running");
 });
+
 
 // ==========================================
 // AUTH ROUTES
@@ -73,6 +64,7 @@ app.use(
   authRoutes
 );
 
+
 // ==========================================
 // CROP ROUTES
 // ==========================================
@@ -82,6 +74,7 @@ app.use(
   "/api/crops",
   cropRoutes
 );
+
 
 // ==========================================
 // BUYER ROUTES
@@ -93,6 +86,7 @@ app.use(
   buyerRoutes
 );
 
+
 // ==========================================
 // ORDER ROUTES
 // ==========================================
@@ -102,6 +96,7 @@ app.use(
   "/api/orders",
   orderRoutes
 );
+
 
 // ==========================================
 // PAYMENT ROUTES
@@ -113,6 +108,7 @@ app.use(
   paymentRoutes
 );
 
+
 // ==========================================
 // REVIEW ROUTES
 // ==========================================
@@ -122,6 +118,7 @@ app.use(
   "/api/reviews",
   reviewRoutes
 );
+
 
 // ==========================================
 // DASHBOARD ROUTES
@@ -133,45 +130,54 @@ app.use(
   dashboardRoutes
 );
 
+
 // ==========================================
 // NOTIFICATION ROUTES
 // ==========================================
-const notificationRoutes = require("./routes/notificationRoutes");
+const notificationRoutes =
+  require("./routes/notificationRoutes");
 
 app.use(
   "/api/notifications",
   notificationRoutes
 );
 
+
 // ==========================================
 // ADMIN ROUTES
 // ==========================================
-const adminRoutes = require("./routes/adminRoutes");
+const adminRoutes =
+  require("./routes/adminRoutes");
 
 app.use(
   "/api/admin",
   adminRoutes
 );
 
+
 // ==========================================
 // WISHLIST ROUTES
 // ==========================================
-const wishlistRoutes = require("./routes/wishlistRoutes");
+const wishlistRoutes =
+  require("./routes/wishlistRoutes");
 
 app.use(
   "/api/wishlist",
   wishlistRoutes
 );
 
+
 // ==========================================
 // FARMER ROUTES
 // ==========================================
-const farmerRoutes = require("./routes/farmerRoutes");
+const farmerRoutes =
+  require("./routes/farmerRoutes");
 
 app.use(
   "/api/farmers",
   farmerRoutes
 );
+
 
 // ==========================================
 // CART ROUTES
@@ -181,6 +187,7 @@ app.use(
   require("./routes/cartRoutes")
 );
 
+
 // ==========================================
 // CHAT ROUTES
 // ==========================================
@@ -188,6 +195,7 @@ app.use(
   "/api/chat",
   require("./routes/chatRoutes")
 );
+
 
 // ==========================================
 // MANDI ROUTES
@@ -197,14 +205,9 @@ app.use(
   require("./routes/mandiRoutes")
 );
 
+
 // ==========================================
 // BULK ORDER REQUEST ROUTES
-// ==========================================
-//
-// Buyer creates bulk requirement.
-// Farmer will later receive notification
-// and submit an offer.
-//
 // ==========================================
 const bulkOrderRequestRoutes =
   require("./routes/bulkOrderRequestRoutes");
@@ -214,22 +217,66 @@ app.use(
   bulkOrderRequestRoutes
 );
 
+
 // ==========================================
-// PORT
+// 🌱 PLANT DISEASE DETECTION ROUTES
 // ==========================================
-const PORT =
-  process.env.PORT || 5000;
+const diseaseRoutes =
+  require("./routes/diseaseRoutes");
+
+app.use(
+  "/api/disease",
+  diseaseRoutes
+);
+
 
 // ==========================================
 // START SERVER
 // ==========================================
-//
-// Socket.IO uses this HTTP server,
-// therefore server.listen() is used instead
-// of app.listen().
+const startServer = async () => {
+  try {
+
+    // Connect MongoDB
+    await connectDB();
+
+    // Create HTTP server
+    const server = http.createServer(app);
+
+    // Initialize Socket.IO
+    initSocket(server);
+
+    // Port
+    const PORT =
+      process.env.PORT || 5000;
+
+    // Start server
+    server.listen(PORT, () => {
+      console.log(
+        `Server running on http://localhost:${PORT}`
+      );
+    });
+
+  } catch (error) {
+
+    console.error(
+      "Failed to start server:",
+      error.message
+    );
+
+    process.exit(1);
+  }
+};
+
+
 // ==========================================
-server.listen(PORT, () => {
-  console.log(
-    `Server running on http://localhost:${PORT}`
-  );
-});
+// START ONLY WHEN THIS FILE IS RUN DIRECTLY
+// ==========================================
+if (require.main === module) {
+  startServer();
+}
+
+
+// ==========================================
+// EXPORT APP FOR TESTING
+// ==========================================
+module.exports = app;

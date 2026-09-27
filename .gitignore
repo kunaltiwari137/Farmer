@@ -18,3 +18,10 @@ build/
 
 # IDE
 .vscode/
+
+# Python / ML
+ml/venv/
+ml/test.jpg
+
+# Dataset
+Dataset/
