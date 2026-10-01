@@ -3,6 +3,10 @@ const mongoose = require("mongoose");
 const app = require("../server");
 const connectDB = require("../config/mongodb");
 
+// MongoDB Atlas connection can sometimes take more than Jest's
+// default 5-second hook timeout.
+jest.setTimeout(15000);
+
 beforeAll(async () => {
   await connectDB();
 });
