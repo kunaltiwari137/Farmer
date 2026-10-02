@@ -100,3 +100,32 @@ Frontend
 - Git
 - GitHub
 - GitHub Actions
+---
+
+## 🏗️ Project Architecture
+
+```text
+                    ┌─────────────────────┐
+                    │      React.js       │
+                    │      Frontend       │
+                    └──────────┬──────────┘
+                               │
+                               │ REST API / Socket.IO
+                               ▼
+                    ┌─────────────────────┐
+                    │   Node.js + Express │
+                    │      Backend        │
+                    └───────┬───────┬─────┘
+                            │       │
+                 ┌──────────┘       └─────────────┐
+                 ▼                                ▼
+        ┌─────────────────┐              ┌─────────────────┐
+        │    MongoDB      │              │   Flask ML API  │
+        │    Database     │              │                 │
+        └─────────────────┘              └────────┬────────┘
+                                                   │
+                                                   ▼
+                                          ┌─────────────────┐
+                                          │ TensorFlow/Keras│
+                                          │ Disease Model   │
+                                          └─────────────────┘
