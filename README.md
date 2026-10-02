@@ -67,3 +67,36 @@ TensorFlow/Keras Model
 Prediction + Confidence
      ↓
 Frontend
+
+---
+
+## 🛠️ Tech Stack
+
+### Frontend
+- React.js
+- HTML5
+- CSS3
+- JavaScript
+
+### Backend
+- Node.js
+- Express.js
+- REST APIs
+- JWT Authentication
+- Socket.IO
+
+### Database
+- MongoDB
+- Mongoose
+
+### Machine Learning
+- Python
+- TensorFlow
+- Keras
+- Flask
+
+### Cloud & Tools
+- Cloudinary
+- Git
+- GitHub
+- GitHub Actions
